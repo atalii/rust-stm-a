@@ -141,10 +141,9 @@ impl Transaction {
 
     /// Perform a downcast on a var.
     fn downcast<T: Any + Clone>(var: Arc<dyn Any>) -> T {
-        match var.downcast_ref::<T>() {
-            Some(s) => s.clone(),
-            None => unreachable!("TVar has wrong type"),
-        }
+        var.downcast_ref::<T>()
+            .expect("TVar had wrong type")
+            .clone()
     }
 
     /// Read a variable and return the value.
