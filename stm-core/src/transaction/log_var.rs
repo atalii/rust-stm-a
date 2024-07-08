@@ -9,7 +9,7 @@ pub type ArcAny = Arc<dyn Any + Send + Sync>;
 pub enum LogVar {
     /// Var has been read.
     Read(ArcAny),
-    
+
     /// Var has been written and no dependency on the original exists.
     ///
     /// There is no need to check for consistency.
@@ -36,13 +36,9 @@ pub enum LogVar {
     /// Don't check for consistency, but block on Var,
     /// so that the threat wakes up when the first path
     /// has been unlocked.
-    ReadObsoleteWrite(ArcAny, ArcAny)
-
-
-    // Here would be WriteObsolete, but the write onlies can be discarded immediately
-    // and don't need a representation in the log.
+    ReadObsoleteWrite(ArcAny, ArcAny), // Here would be WriteObsolete, but the write onlies can be discarded immediately
+                                       // and don't need a representation in the log.
 }
-
 
 impl LogVar {
     /// Read a value and potentially upgrade the state.
@@ -57,7 +53,7 @@ impl LogVar {
         let val;
         match &*self {
             // Use last read value or get written one
-            &Read(ref v) | &Write(ref v) | &ReadWrite(_,ref v) => { 
+            &Read(ref v) | &Write(ref v) | &ReadWrite(_, ref v) => {
                 return v.clone();
             }
 
@@ -67,7 +63,7 @@ impl LogVar {
             }
 
             // Upgrade to a real Read
-            &ReadObsolete(ref v)           => {
+            &ReadObsolete(ref v) => {
                 val = v.clone();
                 this = Read(v.clone());
             }
@@ -75,43 +71,36 @@ impl LogVar {
         *self = this;
         val
     }
-    
+
     /// Write a value and potentially upgrade the state.
-    pub fn write(&mut self, w: ArcAny)
-    {
+    pub fn write(&mut self, w: ArcAny) {
         use self::LogVar::*;
 
         let this = self.clone();
 
         *self = match this {
-            Write(_)    
-                => Write(w),
+            Write(_) => Write(w),
 
             // Register write
-            ReadObsolete(r) | ReadObsoleteWrite(r, _)
-                => ReadObsoleteWrite(r, w),
+            ReadObsolete(r) | ReadObsoleteWrite(r, _) => ReadObsoleteWrite(r, w),
 
             // Register write
-            Read(r) | ReadWrite(r, _)
-                => ReadWrite(r, w),
+            Read(r) | ReadWrite(r, _) => ReadWrite(r, w),
         };
     }
 
     /// Turn `self` into an obsolete version.
-    pub fn obsolete(self) -> Option<LogVar>
-    {
+    pub fn obsolete(self) -> Option<LogVar> {
         use self::LogVar::*;
-        self.into_read_value()
-            .map(|a| ReadObsolete(a))
+        self.into_read_value().map(|a| ReadObsolete(a))
     }
 
     /// Ignore all Write... and get the original value of a Var.
     pub fn into_read_value(self) -> Option<ArcAny> {
         use self::LogVar::*;
         match self {
-            Read(v) | ReadWrite(v,_) | ReadObsolete(v) | ReadObsoleteWrite(v,_)
-                => Some(v),
-            Write(_)    => None,
+            Read(v) | ReadWrite(v, _) | ReadObsolete(v) | ReadObsoleteWrite(v, _) => Some(v),
+            Write(_) => None,
         }
     }
 }
@@ -122,4 +111,3 @@ fn test_write_obsolete_ignore() {
     let t = LogVar::Write(Arc::new(42)).obsolete();
     assert!(t.is_none());
 }
-

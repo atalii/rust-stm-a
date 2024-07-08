@@ -1,0 +1,21 @@
+[package]
+name = "stm"
+version = "0.4.0"
+authors = ["Marthog <Marthog@users.noreply.github.com>"]
+
+description = """
+Implementation of Software transactional memory. Allows composable atomic operations.
+"""
+
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/Marthog/rust-stm"
+repository = "https://github.com/Marthog/rust-stm"
+documentation = "https://docs.rs/stm/0.3.0"
+
+readme = "README.md"
+
+keywords = ["stm", "atomic", "transaction", "lockfree", "concurrency"]
+categories = ["concurrency"]
+
+[dependencies]
+stm-core = { path = "../stm-core" }

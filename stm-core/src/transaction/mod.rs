@@ -9,19 +9,19 @@
 pub mod control_block;
 pub mod log_var;
 
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry::*;
-use std::mem;
-use std::sync::Arc;
 use std::any::Any;
 use std::cell::Cell;
+use std::collections::btree_map::Entry::*;
+use std::collections::BTreeMap;
+use std::mem;
+use std::sync::Arc;
 
+use self::control_block::ControlBlock;
 use self::log_var::LogVar;
 use self::log_var::LogVar::*;
-use self::control_block::ControlBlock;
-use super::tvar::{TVar, VarControlBlock};
-use super::result::*;
 use super::result::StmError::*;
+use super::result::*;
+use super::tvar::{TVar, VarControlBlock};
 
 thread_local!(static TRANSACTION_RUNNING: Cell<bool> = Cell::new(false));
 
@@ -50,14 +50,14 @@ impl Drop for TransactionGuard {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransactionControl {
-    Retry, Abort
+    Retry,
+    Abort,
 }
 
 /// Transaction tracks all the read and written variables.
 ///
 /// It is used for checking vars, to ensure atomicity.
 pub struct Transaction {
-
     /// Map of all vars that map the `VarControlBlock` of a var to a `LogVar`.
     /// The `VarControlBlock` is unique because it uses it's address for comparing.
     ///
@@ -71,18 +71,21 @@ impl Transaction {
     /// Normally you don't need to call this directly.
     /// Use `atomically` instead.
     fn new() -> Transaction {
-        Transaction { vars: BTreeMap::new() }
+        Transaction {
+            vars: BTreeMap::new(),
+        }
     }
 
     /// Run a function with a transaction.
     ///
     /// It is equivalent to `atomically`.
-    pub fn with<T, F>(f: F) -> T 
-    where F: Fn(&mut Transaction) -> StmResult<T>,
+    pub fn with<T, F>(f: F) -> T
+    where
+        F: Fn(&mut Transaction) -> StmResult<T>,
     {
         match Transaction::with_control(|_| TransactionControl::Retry, f) {
             Some(t) => t,
-            None    => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -100,8 +103,9 @@ impl Transaction {
     /// called and `control` does not abort.
     /// If you need a timeout, another thread should signal this through a TVar.
     pub fn with_control<T, F, C>(mut control: C, f: F) -> Option<T>
-    where F: Fn(&mut Transaction) -> StmResult<T>,
-          C: FnMut(StmError) -> TransactionControl,
+    where
+        F: Fn(&mut Transaction) -> StmResult<T>,
+        C: FnMut(StmError) -> TransactionControl,
     {
         let _guard = TransactionGuard::new();
 
@@ -142,7 +146,7 @@ impl Transaction {
     fn downcast<T: Any + Clone>(var: Arc<dyn Any>) -> T {
         match var.downcast_ref::<T>() {
             Some(s) => s.clone(),
-            None    => unreachable!("TVar has wrong type")
+            None => unreachable!("TVar has wrong type"),
         }
     }
 
@@ -158,7 +162,6 @@ impl Transaction {
         let ctrl = var.control_block().clone();
         // Check if the same var was written before.
         let value = match self.vars.entry(ctrl) {
-
             // If the variable has been accessed before, then load that value.
             Occupied(mut entry) => entry.get_mut().read(),
 
@@ -181,7 +184,11 @@ impl Transaction {
     ///
     /// The write is not immediately visible to other threads,
     /// but atomically commited at the end of the computation.
-    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &TVar<T>, value: T) -> StmResult<()> {
+    pub fn write<T: Any + Send + Sync + Clone>(
+        &mut self,
+        var: &TVar<T>,
+        value: T,
+    ) -> StmResult<()> {
         // box the value
         let boxed = Arc::new(value);
 
@@ -189,27 +196,30 @@ impl Transaction {
         let ctrl = var.control_block().clone();
         // update or create new entry
         match self.vars.entry(ctrl) {
-            Occupied(mut entry)     => entry.get_mut().write(boxed),
-            Vacant(entry)       => { entry.insert(Write(boxed)); }
+            Occupied(mut entry) => entry.get_mut().write(boxed),
+            Vacant(entry) => {
+                entry.insert(Write(boxed));
+            }
         }
 
         // For now always succeeds, but that may change later.
         Ok(())
     }
 
-    /// Combine two calculations. When one blocks with `retry`, 
+    /// Combine two calculations. When one blocks with `retry`,
     /// run the other, but don't commit the changes in the first.
     ///
     /// If both block, `Transaction::or` still waits for `TVar`s in both functions.
     /// Use `Transaction::or` instead of handling errors directly with the `Result::or`.
     /// The later does not handle all the blocking correctly.
     pub fn or<T, F1, F2>(&mut self, first: F1, second: F2) -> StmResult<T>
-        where F1: Fn(&mut Transaction) -> StmResult<T>,
-              F2: Fn(&mut Transaction) -> StmResult<T>,
+    where
+        F1: Fn(&mut Transaction) -> StmResult<T>,
+        F2: Fn(&mut Transaction) -> StmResult<T>,
     {
         // Create a backup of the log.
         let mut copy = Transaction {
-            vars: self.vars.clone()
+            vars: self.vars.clone(),
         };
 
         // Run the first computation.
@@ -217,7 +227,7 @@ impl Transaction {
 
         match f {
             // Run other on manual retry call.
-            Err(Retry)      => {
+            Err(Retry) => {
                 // swap, so that self is the current run
                 mem::swap(self, &mut copy);
 
@@ -226,7 +236,7 @@ impl Transaction {
 
                 // If both called retry then exit.
                 match s {
-                    Err(Failure)        => Err(Failure),
+                    Err(Failure) => Err(Failure),
                     s => {
                         self.combine(copy);
                         s
@@ -235,7 +245,7 @@ impl Transaction {
             }
 
             // Return success and failure directly
-            x               => x,
+            x => x,
         }
     }
 
@@ -266,12 +276,10 @@ impl Transaction {
 
         let vars = mem::replace(&mut self.vars, BTreeMap::new());
         let mut reads = Vec::with_capacity(self.vars.len());
-            
-        let blocking = vars.into_iter()
-            .filter_map(|(a, b)| {
-                b.into_read_value()
-                    .map(|b| (a, b))
-            })
+
+        let blocking = vars
+            .into_iter()
+            .filter_map(|(a, b)| b.into_read_value().map(|b| (a, b)))
             // Check for consistency.
             .all(|(var, value)| {
                 var.wait(&ctrl);
@@ -319,23 +327,22 @@ impl Transaction {
         // vector of written variables
         let mut written = Vec::with_capacity(self.vars.len());
 
-
         for (var, value) in &self.vars {
             // lock the variable and read the value
 
             match *value {
                 // We need to take a write lock.
-                Write(ref w) | ReadObsoleteWrite(_,ref w)=> {
+                Write(ref w) | ReadObsoleteWrite(_, ref w) => {
                     // take write lock
                     let lock = var.value.write();
                     // add all data to the vector
                     write_vec.push((w, lock));
                     written.push(var);
                 }
-                
+
                 // We need to check for consistency and
                 // take a write lock.
-                ReadWrite(ref original,ref w) => {
+                ReadWrite(ref original, ref w) => {
                     // take write lock
                     let lock = var.value.write();
 
@@ -348,7 +355,7 @@ impl Transaction {
                 }
                 // Nothing to do. ReadObsolete is only needed for blocking, not
                 // for consistency checks.
-                ReadObsolete(_) => { }
+                ReadObsolete(_) => {}
                 // Take read lock and check for consistency.
                 Read(ref original) => {
                     // Take a read lock.
@@ -373,7 +380,7 @@ impl Transaction {
             // Commit value.
             *lock = value.clone();
         }
-        
+
         for var in written {
             // Unblock all threads waiting for it.
             var.wake_all();
@@ -420,23 +427,19 @@ mod test {
     fn transaction_read() {
         let read = TVar::new(42);
 
-        let x = Transaction::with(|trans| {
-            read.read(trans)
-        });
+        let x = Transaction::with(|trans| read.read(trans));
 
         assert_eq!(x, 42);
     }
 
     /// Run a transaction with a control function, that always aborts.
-    /// The transaction still tries to run a single time and should successfully 
+    /// The transaction still tries to run a single time and should successfully
     /// commit in this test.
     #[test]
     fn transaction_with_control_abort_on_single_run() {
         let read = TVar::new(42);
 
-        let x = Transaction::with_control(|_| TransactionControl::Abort, |tx| {
-            read.read(tx)
-        });
+        let x = Transaction::with_control(|_| TransactionControl::Abort, |tx| read.read(tx));
 
         assert_eq!(x, Some(42));
     }
@@ -445,21 +448,17 @@ mod test {
     /// The transaction retries infinitely often. The control function will abort this loop.
     #[test]
     fn transaction_with_control_abort_on_retry() {
-        let x: Option<i32> = Transaction::with_control(|_| TransactionControl::Abort, |_| {
-            Err(Retry)
-        });
+        let x: Option<i32> =
+            Transaction::with_control(|_| TransactionControl::Abort, |_| Err(Retry));
 
         assert_eq!(x, None);
     }
-
 
     #[test]
     fn transaction_write() {
         let write = TVar::new(42);
 
-        Transaction::with(|trans| {
-            write.write(trans, 0)
-        });
+        Transaction::with(|trans| write.write(trans, 0));
 
         assert_eq!(write.read_atomic(), 0);
     }
@@ -477,7 +476,7 @@ mod test {
         assert_eq!(write.read_atomic(), 42);
     }
 
-    // Dat name. seriously? 
+    // Dat name. seriously?
     #[test]
     fn transaction_control_stuff() {
         let read = TVar::new(42);
