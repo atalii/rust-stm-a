@@ -83,10 +83,7 @@ impl Transaction {
     where
         F: Fn(&mut Transaction) -> StmResult<T>,
     {
-        match Transaction::with_control(|_| TransactionControl::Retry, f) {
-            Some(t) => t,
-            None => unreachable!(),
-        }
+        Transaction::with_control(|_| TransactionControl::Retry, f).unwrap()
     }
 
     /// Run a function with a transaction.
