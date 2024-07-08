@@ -17,5 +17,7 @@ readme = "README.md"
 keywords = ["stm", "atomic", "transaction", "lockfree", "concurrency"]
 categories = ["concurrency"]
 
+edition = "2021"
+
 [dependencies]
 stm-core = { path = "../stm-core" }

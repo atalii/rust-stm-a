@@ -273,7 +273,7 @@ mod test_lib {
         // Clone for other thread.
         let varc = var.clone();
 
-        let x = test::async(
+        let x = test::concurrently(
             800,
             move || {
                 atomically(|tx| {

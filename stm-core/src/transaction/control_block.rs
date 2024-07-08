@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, Thread};
 
 #[cfg(test)]
-use super::super::test::{terminates, terminates_async};
+use super::super::test::{terminates, terminates_concurrently};
 
 /// A control block for a currently running STM instance.
 ///
@@ -110,7 +110,8 @@ mod test {
 
         let ctrl = Arc::new(ControlBlock::new());
         let ctrl2 = ctrl.clone();
-        let terminated = terminates_async(500, move || ctrl.wait(), move || ctrl2.set_changed());
+        let terminated =
+            terminates_concurrently(500, move || ctrl.wait(), move || ctrl2.set_changed());
 
         assert!(terminated);
     }

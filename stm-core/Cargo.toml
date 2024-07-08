@@ -18,6 +18,8 @@ readme = "README.md"
 keywords = ["stm", "atomic", "transaction", "lockfree", "concurrency"]
 categories = ["concurrency"]
 
+edition = "2021"
+
 
 [lib]
 # This field points at where the crate is located, relative to the Cargo.toml.

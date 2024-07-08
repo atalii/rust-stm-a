@@ -16,7 +16,7 @@ pub fn terminates<F>(duration_ms: u64, f: F) -> bool
 where
     F: Send + FnOnce() -> () + 'static,
 {
-    terminates_async(duration_ms, f, || {})
+    terminates_concurrently(duration_ms, f, || {})
 }
 
 /// Check if a function `f` terminates within a given timeframe,
@@ -24,12 +24,12 @@ where
 ///
 /// If the function does not terminate, it keeps a thread alive forever,
 /// so don't run too many test (preferable just one) in sequence.
-pub fn terminates_async<F, G>(duration_ms: u64, f: F, g: G) -> bool
+pub fn terminates_concurrently<F, G>(duration_ms: u64, f: F, g: G) -> bool
 where
     F: Send + FnOnce() -> () + 'static,
     G: FnOnce() -> (),
 {
-    async(duration_ms, f, g).is_some()
+    concurrently(duration_ms, f, g).is_some()
 }
 
 /// Run two functions `f` and `g` concurrently.
@@ -39,7 +39,7 @@ where
 ///
 /// If `f` does not terminate, it keeps a thread alive forever,
 /// so don't run too many test (preferable just one) in sequence.
-pub fn async<T, F, G>(duration_ms: u64, f: F, g: G) -> Option<T>
+pub fn concurrently<T, F, G>(duration_ms: u64, f: F, g: G) -> Option<T>
 where
     F: Send + FnOnce() -> T + 'static,
     G: FnOnce() -> (),
