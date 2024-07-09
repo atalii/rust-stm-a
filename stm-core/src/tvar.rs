@@ -19,6 +19,8 @@ use super::result::*;
 use super::transaction::control_block::ControlBlock;
 use super::Transaction;
 
+type AnyLock = RwLock<Arc<dyn Any + Send + Sync>>;
+
 /// `VarControlBlock` contains all the useful data for a `Var` while beeing the same type.
 ///
 /// The control block is accessed from other threads directly whereas `Var`
@@ -49,7 +51,7 @@ pub struct VarControlBlock {
     ///
     /// Starvation may occur, if one thread wants to write-lock but others
     /// keep holding read-locks.
-    pub value: RwLock<Arc<dyn Any + Send + Sync>>,
+    value: AnyLock,
 }
 
 impl VarControlBlock {
@@ -64,6 +66,10 @@ impl VarControlBlock {
             value: RwLock::new(Arc::new(val)),
         };
         Arc::new(ctrl)
+    }
+
+    pub fn value(&self) -> &AnyLock {
+        &self.value
     }
 
     /// Wake all threads that are waiting for this block.
