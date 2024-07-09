@@ -117,6 +117,7 @@
 
 extern crate parking_lot;
 
+mod optlock;
 mod result;
 mod transaction;
 mod tvar;
@@ -328,7 +329,7 @@ mod test_lib {
 
         // finish and compare
         let _ = t.join();
-        assert_eq!(42, var.read_atomic());
+        assert_eq!(var.read_atomic(), Some(42));
     }
 
     #[test]

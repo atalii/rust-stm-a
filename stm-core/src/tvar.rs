@@ -6,7 +6,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use std::any::Any;
 use std::cmp;
 use std::fmt::{self, Debug};
@@ -19,7 +19,9 @@ use super::result::*;
 use super::transaction::control_block::ControlBlock;
 use super::Transaction;
 
-type AnyLock = RwLock<Arc<dyn Any + Send + Sync>>;
+use crate::optlock::OptLock;
+
+type AnyLock = OptLock<Arc<dyn Any + Send + Sync>>;
 
 /// `VarControlBlock` contains all the useful data for a `Var` while beeing the same type.
 ///
@@ -63,7 +65,7 @@ impl VarControlBlock {
         let ctrl = VarControlBlock {
             waiting_threads: Mutex::new(Vec::new()),
             dead_threads: AtomicUsize::new(0),
-            value: RwLock::new(Arc::new(val)),
+            value: OptLock::new(Arc::new(val)),
         };
         Arc::new(ctrl)
     }
@@ -188,22 +190,22 @@ where
     /// but more efficient.
     ///
     /// `read_atomic` returns a clone of the value.
-    pub fn read_atomic(&self) -> T {
-        let val = self.read_ref_atomic();
-
-        (&*val as &dyn Any)
-            .downcast_ref::<T>()
-            .expect("wrong type in Var<T>")
-            .clone()
+    pub fn read_atomic(&self) -> Option<T> {
+        self.read_arc_atomic().map(|val| {
+            (&*val as &dyn Any)
+                .downcast_ref::<T>()
+                .expect("wrong type in Var<T>")
+                .clone()
+        })
     }
 
-    /// Read a value atomically but return a reference.
+    /// Read a value atomically but return an Arc.
     ///
     /// This is mostly used internally, but can be useful in
     /// some cases, because `read_atomic` clones the
     /// inner value, which may be expensive.
-    pub fn read_ref_atomic(&self) -> Arc<dyn Any + Send + Sync> {
-        self.control_block.value.read().clone()
+    pub fn read_arc_atomic(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+        self.control_block.value().lock().map(|guard| guard.clone())
     }
 
     /// The normal way to access a var.
@@ -233,7 +235,7 @@ where
     ///     var.modify(trans, |x| x*2)
     /// );
     ///
-    /// assert_eq!(var.read_atomic(), 42);
+    /// assert_eq!(var.read_atomic(), Some(42));
     /// ```
     pub fn modify<F>(&self, transaction: &mut Transaction, f: F) -> StmResult<()>
     where
@@ -255,7 +257,7 @@ where
     /// );
     ///
     /// assert_eq!(x, 0);
-    /// assert_eq!(var.read_atomic(), 42);
+    /// assert_eq!(var.read_atomic(), Some(42));
     /// ```
     pub fn replace(&self, transaction: &mut Transaction, value: T) -> StmResult<T> {
         let old = self.read(transaction)?;
@@ -302,7 +304,7 @@ where
 fn test_read_atomic() {
     let var = TVar::new(42);
 
-    assert_eq!(42, var.read_atomic());
+    assert_eq!(var.read_atomic(), Some(42));
 }
 
 // More tests are in lib.rs.

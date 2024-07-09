@@ -159,18 +159,20 @@ impl Transaction {
         // Check if the same var was written before.
         let value = match self.vars.entry(ctrl) {
             // If the variable has been accessed before, then load that value.
-            Occupied(mut entry) => entry.get_mut().read(),
+            Occupied(mut entry) => Ok(entry.get_mut().read()),
 
             // Else load the variable statically.
             Vacant(entry) => {
                 // Read the value from the var.
-                let value = var.read_ref_atomic();
-
-                // Store in in an entry.
-                entry.insert(Read(value.clone()));
-                value
+                match var.read_arc_atomic() {
+                    Some(value) => {
+                        entry.insert(Read(value.clone()));
+                        Ok(value.clone())
+                    }
+                    None => Err(StmError::Failure),
+                }
             }
-        };
+        }?;
 
         // For now always succeeds, but that may change later.
         Ok(Transaction::downcast(value))
@@ -281,8 +283,12 @@ impl Transaction {
                 var.wait(&ctrl);
                 let x = {
                     // Take read lock and read value.
-                    let guard = var.value().read();
-                    Arc::ptr_eq(&value, &guard)
+                    match var.value().lock() {
+                        Some(guard) => Arc::ptr_eq(&value, &guard),
+                        None => {
+                            return false;
+                        }
+                    }
                 };
                 reads.push(var);
                 x
@@ -330,24 +336,31 @@ impl Transaction {
                 // We need to take a write lock.
                 Write(ref w) | ReadObsoleteWrite(_, ref w) => {
                     // take write lock
-                    let lock = var.value().write();
-                    // add all data to the vector
-                    write_vec.push((w, lock));
-                    written.push(var);
+                    match var.value().lock() {
+                        Some(guard) => {
+                            write_vec.push((w, guard));
+                            written.push(var);
+                        }
+                        None => {
+                            return false;
+                        }
+                    }
                 }
 
                 // We need to check for consistency and
                 // take a write lock.
                 ReadWrite(ref original, ref w) => {
                     // take write lock
-                    let lock = var.value().write();
+                    match var.value().lock() {
+                        Some(guard) if Arc::ptr_eq(&guard, original) => {
+                            write_vec.push((w, guard));
+                            written.push(var);
+                        }
 
-                    if !Arc::ptr_eq(&lock, original) {
-                        return false;
+                        _ => {
+                            return false;
+                        }
                     }
-                    // add all data to the vector
-                    write_vec.push((w, lock));
-                    written.push(var);
                 }
                 // Nothing to do. ReadObsolete is only needed for blocking, not
                 // for consistency checks.
@@ -355,13 +368,15 @@ impl Transaction {
                 // Take read lock and check for consistency.
                 Read(ref original) => {
                     // Take a read lock.
-                    let lock = var.value().read();
+                    match var.value().lock() {
+                        Some(guard) if Arc::ptr_eq(&guard, original) => {
+                            read_vec.push(guard);
+                        }
 
-                    if !Arc::ptr_eq(&lock, original) {
-                        return false;
+                        _ => {
+                            return false;
+                        }
                     }
-
-                    read_vec.push(lock);
                 }
             }
         }
@@ -410,7 +425,7 @@ mod test {
         assert_eq!(log.read(&var).unwrap(), [1, 2, 3, 4]);
 
         // The original value is still preserved.
-        assert_eq!(var.read_atomic(), [1, 2]);
+        assert_eq!(var.read_atomic(), Some(vec![1, 2]));
     }
 
     #[test]
@@ -456,7 +471,7 @@ mod test {
 
         Transaction::with(|trans| write.write(trans, 0));
 
-        assert_eq!(write.read_atomic(), 0);
+        assert_eq!(write.read_atomic(), Some(0));
     }
 
     #[test]
@@ -469,7 +484,7 @@ mod test {
             write.write(trans, r)
         });
 
-        assert_eq!(write.read_atomic(), 42);
+        assert_eq!(write.read_atomic(), Some(42));
     }
 
     // Dat name. seriously?
@@ -483,7 +498,7 @@ mod test {
             write.write(trans, r)
         });
 
-        assert_eq!(write.read_atomic(), 42);
+        assert_eq!(write.read_atomic(), Some(42));
     }
 
     /// Test if nested transactions are correctly detected.
