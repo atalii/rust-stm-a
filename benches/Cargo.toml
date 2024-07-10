@@ -1,0 +1,12 @@
+[package]
+name = "benches"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+stm = { path = "../rust-stm" }
+criterion = "0.4"
+
+[[bench]]
+name = "nocontension"
+harness = false
