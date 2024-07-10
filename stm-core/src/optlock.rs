@@ -1,4 +1,4 @@
-use std::cell::{RefCell, RefMut};
+use std::cell::UnsafeCell;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -10,11 +10,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// can fail earlier.
 pub struct OptLock<T> {
     lock: RawOptLock,
-    value: RefCell<T>,
+    value: UnsafeCell<T>,
 }
 
 pub struct OptLockGuard<'a, T> {
-    inner: RefMut<'a, T>,
+    inner: &'a mut T,
     lock: &'a RawOptLock,
 }
 
@@ -28,14 +28,17 @@ impl<T> OptLock<T> {
     pub fn new(value: T) -> Self {
         Self {
             lock: RawOptLock::new(),
-            value: RefCell::new(value),
+            value: UnsafeCell::new(value),
         }
     }
 
     pub fn lock<'a>(&'a self) -> Option<OptLockGuard<'a, T>> {
         match self.lock.lock() {
             true => Some(OptLockGuard {
-                inner: self.value.borrow_mut(),
+                inner: unsafe {
+                    // SAFETY: we've obtained the lock.
+                    &mut *self.value.get()
+                },
                 lock: &self.lock,
             }),
             false => None,
