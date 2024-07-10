@@ -10,3 +10,7 @@ criterion = "0.4"
 [[bench]]
 name = "nocontension"
 harness = false
+
+[[bench]]
+name = "contention"
+harness = false
