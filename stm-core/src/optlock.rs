@@ -76,8 +76,9 @@ impl RawOptLock {
 
     pub fn lock(&self) -> bool {
         // XXX: am i getting orderings right?
-        let was_locked = self.locked.swap(true, Ordering::Acquire);
-        !was_locked
+        self.locked
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
     }
 
     pub unsafe fn unlock(&self) {
