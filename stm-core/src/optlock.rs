@@ -14,7 +14,7 @@ pub struct OptLock<T> {
 }
 
 pub struct OptLockGuard<'a, T> {
-    inner: &'a mut T,
+    inner: *mut T,
     lock: &'a RawOptLock,
 }
 
@@ -35,10 +35,7 @@ impl<T> OptLock<T> {
     pub fn lock<'a>(&'a self) -> Option<OptLockGuard<'a, T>> {
         match self.lock.lock() {
             true => Some(OptLockGuard {
-                inner: unsafe {
-                    // SAFETY: we've obtained the lock.
-                    &mut *self.value.get()
-                },
+                inner: self.value.get(),
                 lock: &self.lock,
             }),
             false => None,
@@ -57,13 +54,19 @@ impl<'a, T> Deref for OptLockGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+	// SAFETY: OptLockGuard has exclusive access by construction.
+	unsafe {
+            &*self.inner
+	}
     }
 }
 
 impl<'a, T> DerefMut for OptLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+	// SAFETY: OptLockGuard has exclusive access by construction.
+	unsafe {
+	    &mut *self.inner
+	}
     }
 }
 
@@ -75,10 +78,11 @@ impl RawOptLock {
     }
 
     pub fn lock(&self) -> bool {
-        // XXX: am i getting orderings right?
-        self.locked
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
+        let old = self.locked.compare_exchange_weak(
+	    false, true, Ordering::Acquire, Ordering::Relaxed,
+	);
+
+	old == Ok(false)
     }
 
     pub unsafe fn unlock(&self) {
